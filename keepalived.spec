@@ -6,7 +6,7 @@
 Name: keepalived
 Summary: Load balancer and high availability service
 Version: 1.2.13
-Release: 4%{?dist}
+Release: 5%{?dist}
 License: GPLv2+
 URL: http://www.keepalived.org/
 Group: System Environment/Daemons
@@ -27,7 +27,7 @@ BuildRequires: net-snmp-devel
 %endif
 BuildRequires: openssl-devel
 BuildRequires: libnl-devel
-BuildRequires: kernel-devel
+BuildRequires: kernel-headers
 BuildRequires: popt-devel
 
 %description
@@ -58,6 +58,7 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %{__make} install DESTDIR=%{buildroot}
 %{__rm} -rf %{buildroot}%{_sysconfdir}/keepalived/samples/
 %{__install} -p -m 0755 %{SOURCE1} %{buildroot}%{_initrddir}/%{name}
+%{__mkdir_p} %{buildroot}%{_libexecdir}/keepalived
 
 %if %{with snmp}
 %{__mkdir_p} -p %{buildroot}%{_datadir}/snmp/mibs/
@@ -86,6 +87,7 @@ fi
 %doc AUTHOR ChangeLog CONTRIBUTORS COPYING README TODO VERSION
 %doc doc/keepalived.conf.SYNOPSIS doc/NOTE_vrrp_vmac.txt doc/samples/
 %dir %{_sysconfdir}/keepalived/
+%dir %{_libexecdir}/keepalived/
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/keepalived/keepalived.conf
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/keepalived
 %{_sysconfdir}/rc.d/init.d/keepalived
@@ -99,7 +101,11 @@ fi
 %{_mandir}/man8/keepalived.8*
 
 %changelog
-* Wed Aug 07 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-4
+* Wed Mar 04 2015 Ryan O'Hara <rohara@redhat.com> - 1.2.13-5
+- Create /usr/libexec/keepalived directory
+  Resolves: rhbz#1198432
+
+* Wed Aug 06 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-4
 - Bump release number
   Related: rhbz#1100029, rhbz#1100030
 
