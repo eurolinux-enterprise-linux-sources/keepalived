@@ -4,15 +4,17 @@
 %bcond_with debug
 
 Name: keepalived
-Summary: High Availability monitor built upon LVS, VRRP and service pollers
-Version: 1.2.7
-Release: 3%{?dist}
+Summary: Load balancer and high availability service
+Version: 1.2.13
+Release: 4%{?dist}
 License: GPLv2+
 URL: http://www.keepalived.org/
 Group: System Environment/Daemons
 
 Source0: http://www.keepalived.org/software/keepalived-%{version}.tar.gz
 Source1: keepalived.init
+
+Patch0: bz1100028-keepalived-man-snmp.patch
 
 Requires(post): /sbin/chkconfig
 Requires(preun): /sbin/chkconfig
@@ -30,20 +32,17 @@ BuildRequires: popt-devel
 
 %description
 Keepalived provides simple and robust facilities for load balancing
-and high availability to Linux system and Linux based infrastructures.
-The load balancing framework relies on well-known and widely used
-Linux Virtual Server (IPVS) kernel module providing Layer4 load
-balancing. Keepalived implements a set of checkers to dynamically and
-adaptively maintain and	manage load-balanced server pool according
-their health. High availability is achieved by VRRP protocol. VRRP is
-a fundamental brick for router failover. In addition, keepalived
-implements a set of hooks to the VRRP finite state machine providing
-low-level and high-speed protocol interactions. Keepalived frameworks
-can be used independently or all together to provide resilient
-infrastructures.
+and high availability.  The load balancing framework relies on the
+well-known and widely used Linux Virtual Server (IPVS) kernel module
+providing layer-4 (transport layer) load balancing.  Keepalived
+implements a set of checkers to dynamically and adaptively maintain
+and manage a load balanced server pool according their health.
+Keepalived also implements the Virtual Router Redundancy Protocol
+(VRRPv2) to achieve high availability with director failover.
 
 %prep
 %setup -q
+%patch0 -p1
 
 %build
 %configure \
@@ -54,18 +53,19 @@ infrastructures.
 %{__make} %{?_smp_mflags} STRIP=/bin/true
 
 %install
-rm -rf %{buildroot}
-make install DESTDIR=%{buildroot}
-rm -rf %{buildroot}%{_sysconfdir}/keepalived/samples/
+%{__rm} -rf %{buildroot}
+%{__rm} -rf doc/samples/*.pem
+%{__make} install DESTDIR=%{buildroot}
+%{__rm} -rf %{buildroot}%{_sysconfdir}/keepalived/samples/
 %{__install} -p -m 0755 %{SOURCE1} %{buildroot}%{_initrddir}/%{name}
 
 %if %{with snmp}
-mkdir -p %{buildroot}%{_datadir}/snmp/mibs/
+%{__mkdir_p} -p %{buildroot}%{_datadir}/snmp/mibs/
 %{__install} -p -m 0644 doc/KEEPALIVED-MIB %{buildroot}%{_datadir}/snmp/mibs/KEEPALIVED-MIB.txt
 %endif
 
 %clean
-rm -rf %{buildroot}
+%{__rm} -rf %{buildroot}
 
 %post
 /sbin/chkconfig --add keepalived
@@ -83,25 +83,38 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%attr(0755,root,root) %{_sbindir}/keepalived
-%attr(0644,root,root) %{_sysconfdir}/sysconfig/keepalived
-%attr(0644,root,root) %{_sysconfdir}/keepalived/keepalived.conf
-%doc AUTHOR ChangeLog CONTRIBUTORS COPYING README TODO
-%doc doc/keepalived.conf.SYNOPSIS doc/samples/keepalived.conf.*
+%doc AUTHOR ChangeLog CONTRIBUTORS COPYING README TODO VERSION
+%doc doc/keepalived.conf.SYNOPSIS doc/NOTE_vrrp_vmac.txt doc/samples/
 %dir %{_sysconfdir}/keepalived/
-%config(noreplace) %{_sysconfdir}/keepalived/keepalived.conf
-%config(noreplace) %{_sysconfdir}/sysconfig/keepalived
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/keepalived/keepalived.conf
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/keepalived
 %{_sysconfdir}/rc.d/init.d/keepalived
 %if %{with snmp}
 %{_datadir}/snmp/mibs/KEEPALIVED-MIB.txt
 %endif
-%{_bindir}/genhash
-%{_sbindir}/keepalived
+%attr(0755,root,root) %{_bindir}/genhash
+%attr(0755,root,root) %{_sbindir}/keepalived
 %{_mandir}/man1/genhash.1*
 %{_mandir}/man5/keepalived.conf.5*
 %{_mandir}/man8/keepalived.8*
 
 %changelog
+* Wed Aug 07 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-4
+- Bump release number
+  Related: rhbz#1100029, rhbz#1100030
+
+* Thu May 22 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-3
+- Minor spec file modifications
+  Resolves: rhbz#1100029, rhbz#1100030
+
+* Wed May 21 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-2
+- Add SNMP subsystem option to man page
+  Resolves: rhbz#1100028
+
+* Wed May 21 2014 Ryan O'Hara <rohara@redhat.com> - 1.2.13-1
+- Rebase to upstream version 1.2.13
+  Resolves: rhbz#1052380, rhbz#1077201, rhbz#1007575, rhbz#967641
+
 * Wed Sep 26 2012 Ryan O'Hara <rohara@redhat.com> - 1.2.7-3
 - Don't strip binaries at build time.
   Resolves: rhbz#846064

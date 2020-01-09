@@ -29,8 +29,8 @@
 #include "ipwrapper.h"
 
 /* global vars */
-check_conf_data *check_data = NULL;
-check_conf_data *old_check_data = NULL;
+check_data_t *check_data = NULL;
+check_data_t *old_check_data = NULL;
 
 /* SSL facility functions */
 ssl_data_t *
@@ -73,7 +73,7 @@ dump_ssl(void)
 static void
 free_vsg(void *data)
 {
-	virtual_server_group *vsg = data;
+	virtual_server_group_t *vsg = data;
 	FREE_PTR(vsg->gname);
 	free_list(vsg->addr_ip);
 	free_list(vsg->range);
@@ -83,7 +83,7 @@ free_vsg(void *data)
 static void
 dump_vsg(void *data)
 {
-	virtual_server_group *vsg = data;
+	virtual_server_group_t *vsg = data;
 
 	log_message(LOG_INFO, " Virtual Server Group = %s", vsg->gname);
 	dump_list(vsg->addr_ip);
@@ -98,7 +98,7 @@ free_vsg_entry(void *data)
 static void
 dump_vsg_entry(void *data)
 {
-	virtual_server_group_entry *vsg_entry = data;
+	virtual_server_group_entry_t *vsg_entry = data;
 
 	if (vsg_entry->vfwmark)
 		log_message(LOG_INFO, "   FWMARK = %d", vsg_entry->vfwmark);
@@ -116,9 +116,9 @@ void
 alloc_vsg(char *gname)
 {
 	int size = strlen(gname);
-	virtual_server_group *new;
+	virtual_server_group_t *new;
 
-	new = (virtual_server_group *) MALLOC(sizeof (virtual_server_group));
+	new = (virtual_server_group_t *) MALLOC(sizeof(virtual_server_group_t));
 	new->gname = (char *) MALLOC(size + 1);
 	memcpy(new->gname, gname, size);
 	new->addr_ip = alloc_list(free_vsg_entry, dump_vsg_entry);
@@ -130,10 +130,10 @@ alloc_vsg(char *gname)
 void
 alloc_vsg_entry(vector_t *strvec)
 {
-	virtual_server_group *vsg = LIST_TAIL_DATA(check_data->vs_group);
-	virtual_server_group_entry *new;
+	virtual_server_group_t *vsg = LIST_TAIL_DATA(check_data->vs_group);
+	virtual_server_group_entry_t *new;
 
-	new = (virtual_server_group_entry *) MALLOC(sizeof (virtual_server_group_entry));
+	new = (virtual_server_group_entry_t *) MALLOC(sizeof(virtual_server_group_entry_t));
 
 	if (!strcmp(vector_slot(strvec, 0), "fwmark")) {
 		new->vfwmark = atoi(vector_slot(strvec, 1));
@@ -152,7 +152,7 @@ alloc_vsg_entry(vector_t *strvec)
 static void
 free_vs(void *data)
 {
-	virtual_server *vs = data;
+	virtual_server_t *vs = data;
 	FREE_PTR(vs->vsgname);
 	FREE_PTR(vs->virtualhost);
 	FREE_PTR(vs->s_svr);
@@ -164,7 +164,7 @@ free_vs(void *data)
 static void
 dump_vs(void *data)
 {
-	virtual_server *vs = data;
+	virtual_server_t *vs = data;
 
 	if (vs->vsgname)
 		log_message(LOG_INFO, " VS GROUP = %s", vs->vsgname);
@@ -214,9 +214,8 @@ dump_vs(void *data)
 	}
 
 	if (vs->s_svr) {
-		log_message(LOG_INFO, "   sorry server = [%s]:%d"
-				    , inet_sockaddrtos(&vs->s_svr->addr)
-				    , ntohs(inet_sockaddrport(&vs->s_svr->addr)));
+		log_message(LOG_INFO, "   sorry server = %s"
+				    , FMT_RS(vs->s_svr));
 	}
 	if (!LIST_ISEMPTY(vs->rs))
 		dump_list(vs->rs);
@@ -226,9 +225,9 @@ void
 alloc_vs(char *ip, char *port)
 {
 	int size = strlen(port);
-	virtual_server *new;
+	virtual_server_t *new;
 
-	new = (virtual_server *) MALLOC(sizeof (virtual_server));
+	new = (virtual_server_t *) MALLOC(sizeof(virtual_server_t));
 
 	if (!strcmp(ip, "group")) {
 		new->vsgname = (char *) MALLOC(size + 1);
@@ -257,9 +256,9 @@ alloc_vs(char *ip, char *port)
 void
 alloc_ssvr(char *ip, char *port)
 {
-	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+	virtual_server_t *vs = LIST_TAIL_DATA(check_data->vs);
 
-	vs->s_svr = (real_server *) MALLOC(sizeof (real_server));
+	vs->s_svr = (real_server_t *) MALLOC(sizeof(real_server_t));
 	vs->s_svr->weight = 1;
 	vs->s_svr->iweight = 1;
 	inet_stosockaddr(ip, port, &vs->s_svr->addr);
@@ -269,7 +268,7 @@ alloc_ssvr(char *ip, char *port)
 static void
 free_rs(void *data)
 {
-	real_server *rs = data;
+	real_server_t *rs = data;
 	FREE_PTR(rs->notify_up);
 	FREE_PTR(rs->notify_down);
 	free_list(rs->failed_checkers);
@@ -278,7 +277,7 @@ free_rs(void *data)
 static void
 dump_rs(void *data)
 {
-	real_server *rs = data;
+	real_server_t *rs = data;
 
 	log_message(LOG_INFO, "   RIP = %s, RPORT = %d, WEIGHT = %d"
 			    , inet_sockaddrtos(&rs->addr)
@@ -303,10 +302,10 @@ free_failed_checkers(void *data)
 void
 alloc_rs(char *ip, char *port)
 {
-	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
-	real_server *new;
+	virtual_server_t *vs = LIST_TAIL_DATA(check_data->vs);
+	real_server_t *new;
 
-	new = (real_server *) MALLOC(sizeof (real_server));
+	new = (real_server_t *) MALLOC(sizeof(real_server_t));
 	inet_stosockaddr(ip, port, &new->addr);
 
 	new->weight = 1;
@@ -319,12 +318,12 @@ alloc_rs(char *ip, char *port)
 }
 
 /* data facility functions */
-check_conf_data *
+check_data_t *
 alloc_check_data(void)
 {
-	check_conf_data *new;
+	check_data_t *new;
 
-	new = (check_conf_data *) MALLOC(sizeof (check_conf_data));
+	new = (check_data_t *) MALLOC(sizeof(check_data_t));
 	new->vs = alloc_list(free_vs, dump_vs);
 	new->vs_group = alloc_list(free_vsg, dump_vsg);
 
@@ -332,7 +331,7 @@ alloc_check_data(void)
 }
 
 void
-free_check_data(check_conf_data *data)
+free_check_data(check_data_t *data)
 {
 	free_list(data->vs);
 	free_list(data->vs_group);
@@ -340,7 +339,7 @@ free_check_data(check_conf_data *data)
 }
 
 void
-dump_check_data(check_conf_data *data)
+dump_check_data(check_data_t *data)
 {
 	if (data->ssl) {
 		log_message(LOG_INFO, "------< SSL definitions >------");
@@ -355,4 +354,26 @@ dump_check_data(check_conf_data *data)
 		dump_list(data->vs);
 	}
 	dump_checkers_queue();
+}
+
+char *
+format_vs (virtual_server_t *vs)
+{
+	static char addr_str[INET6_ADDRSTRLEN + 1];
+	/* alloc large buffer because of unknown length of vs->vsgname */
+	static char ret[512];
+
+	if (vs->vsgname)
+		snprintf (ret, sizeof (ret) - 1, "[%s]:%d"
+			, vs->vsgname
+			, ntohs(inet_sockaddrport(&vs->addr)));
+	else if (vs->vfwmark)
+		snprintf (ret, sizeof (ret) - 1, "FWM %d", vs->vfwmark);
+	else {
+		inet_sockaddrtos2(&vs->addr, addr_str);
+		snprintf(ret, sizeof(ret) - 1, "[%s]:%d"
+			, addr_str
+			, ntohs(inet_sockaddrport(&vs->addr)));
+	}
+	return ret;
 }
