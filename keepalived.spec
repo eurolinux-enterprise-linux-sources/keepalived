@@ -9,7 +9,7 @@
 Name: keepalived
 Summary: Load balancer and high availability service
 Version: 1.3.5
-Release: 8%{?dist}.5
+Release: 8%{?dist}
 License: GPLv2+
 URL: http://www.keepalived.org/
 Group: System Environment/Daemons
@@ -25,17 +25,6 @@ Patch4: bz1508435-no-segfault-ip_vs-load.patch
 Patch5: bz1508435-remove-ipset-handling.patch
 Patch6: bz1477587-exclude-mismatch-vips.patch
 Patch7: bz1652694-fix-buffer-overflow-http-status.patch
-patch10: bz1678480-add-child_wait_time.patch
-patch11: bz1678480-migrate-failed-checkers-reload.patch
-patch12: bz1678480-implment-checker-comparison.patch
-patch13: bz1678480-fix-wrong-migrate-checker-id.patch
-patch14: bz1678480-set-active-if-failed-checkers-empty.patch
-patch15: bz1678480-fix-checker-coding-style.patch
-patch16: bz1678480-remove-unnecessary-parameter-compare.patch
-patch17: bz1678480-resolve-compiler-warning.patch
-patch18: bz1678480-include-check_api-in-ipwrapper.patch
-patch19: bz1715308-make-checker-variables-non-global.patch
-patch20: bz1715308-fix-checkers-comparison-on-reload.patch
 
 Requires: ipset-libs
 Requires(post): systemd
@@ -74,17 +63,6 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %patch5 -p1
 %patch6 -p1
 %patch7 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
-%patch18 -p1
-%patch19 -p1
-%patch20 -p1
 
 %build
 %configure \
@@ -141,22 +119,7 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %{_mandir}/man8/keepalived.8*
 
 %changelog
-* Mon Jun 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8.5
-- Rework previous checker comparison patch (#1716588)
-
-* Mon Jun 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8.4
-- Make checker variables non global (#1716588)
-
-* Mon Jun 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8.3
-- Fix comparison of checkers on reload (#1716588)
-
-* Wed Apr 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8.2
-- Fix build errors (#1678480)
-
-* Tue Apr 02 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8.1
-- Fix problems with health checks & real servers after reload/restart (#1695653)
-
-* Thu Dec 13 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8
+* Thu Dec 31 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8
 - Fixed patch that was incorrectly removed (#1652694)
 
 * Mon Dec 10 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-7
