@@ -1,0 +1,32 @@
+From 6e855aa91876e6a41324e870439f2c185318be88 Mon Sep 17 00:00:00 2001
+From: Ryan O'Hara <rohara@redhat.com>
+Date: Wed, 15 Mar 2017 14:46:33 -0500
+Subject: [PATCH] Fix unused variables
+
+---
+ keepalived/vrrp/vrrp_snmp.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/keepalived/vrrp/vrrp_snmp.c b/keepalived/vrrp/vrrp_snmp.c
+index 7956f66..84aa00e 100644
+--- a/keepalived/vrrp/vrrp_snmp.c
++++ b/keepalived/vrrp/vrrp_snmp.c
+@@ -1112,13 +1112,13 @@ vrrp_snmp_encap(struct variable *vp, oid *name, size_t *length,
+ {
+ #if HAVE_DECL_LWTUNNEL_ENCAP_MPLS
+ 	static char labels[11*MAX_MPLS_LABELS];
+-#endif
+ 	char *op;
++	unsigned i;
++#endif
+ 	ip_route_t *route;
+ 	nexthop_t *nh;
+ 	encap_t *encap;
+ 	int state = HEADER_STATE_STATIC_ROUTE;
+-	unsigned i;
+ 	static struct counter64 c64;
+ 
+ 	if (vp->name[vp->namelen - 3] == 7) {
+-- 
+2.9.3
+

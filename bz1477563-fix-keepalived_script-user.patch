@@ -1,0 +1,729 @@
+From 99f31a89d2f5803fe2d6229f2557e72efb3ef95f Mon Sep 17 00:00:00 2001
+From: Quentin Armitage <quentin@armitage.org.uk>
+Date: Tue, 28 Mar 2017 09:11:44 +0100
+Subject: [PATCH] Make dynamic flag bool
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+
+Fix releasing malloc'd memory for saved core pattern
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+
+Fix detecting default script uid/gid
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+
+Don't complain about keepalived_script user if not needed
+
+keepalived logged a warning every time if the keepalived_script user
+didn't exist. We only need that warning if there is a script that uses
+the default user, and an alternative defult user isn't specified.
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+---
+ doc/keepalived.conf.SYNOPSIS    |  30 +++++----
+ doc/man/man5/keepalived.conf.5  |   4 +-
+ keepalived/check/check_misc.c   |  72 ++++++++++++++++-----
+ keepalived/check/check_parser.c |   9 +--
+ keepalived/core/global_parser.c |  49 +-------------
+ keepalived/core/main.c          |  15 +----
+ keepalived/include/check_misc.h |   2 +-
+ keepalived/include/main.h       |   2 -
+ keepalived/vrrp/vrrp_data.c     |   3 +-
+ keepalived/vrrp/vrrp_parser.c   |  46 ++++++++++---
+ keepalived/vrrp/vrrp_print.c    |   1 +
+ lib/notify.c                    | 140 ++++++++++++++++++++++++++++++++++------
+ lib/notify.h                    |   7 +-
+ 13 files changed, 242 insertions(+), 138 deletions(-)
+
+diff --git a/doc/keepalived.conf.SYNOPSIS b/doc/keepalived.conf.SYNOPSIS
+index 5b1dfb8..90eb83d 100644
+--- a/doc/keepalived.conf.SYNOPSIS
++++ b/doc/keepalived.conf.SYNOPSIS
+@@ -568,12 +568,14 @@ virtual_server group <STRING>      {	# VS group declaration
+         weight <INTEGER>		# weight to use (default: 1)
+         inhibit_on_failure		# Set weight to 0 on healthchecker
+ 					#  failure
+-        notify_up <STRING>|<QUOTED-STRING> # Script to launch when
+-					   #  healthchecker consider service
+-					   #  as up.
+-        notify_down <STRING>|<QUOTED-STRING> # Script to launch when
+-					     #  healthchecker consider service
+-					     #  as down.
++        notify_up <STRING>|<QUOTED-STRING> [username [groupname]]
++					# Script to launch when
++					#  healthchecker consider service
++					#  as up.
++        notify_down <STRING>|<QUOTED-STRING> [username [groupname]]
++					# Script to launch when
++					#  healthchecker consider service
++					#  as down.
+ 
+         HTTP_GET|SSL_GET {		# HTTP and SSL healthcheckers
+             url {			# A set of url to test
+@@ -603,8 +605,8 @@ virtual_server group <STRING>      {	# VS group declaration
+     real_server <IP ADDRESS> <PORT> {	# Idem
+         weight <INTEGER>		# Idem
+         inhibit_on_failure		# Idem
+-        notify_up <STRING>|<QUOTED-STRING> # Idem
+-        notify_down <STRING>|<QUOTED-STRING> # Idem
++        notify_up <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
++        notify_down <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
+ 
+         TCP_CHECK {			# TCP healthchecker
+             connect_ip <IP ADDRESS> # IP address to connect
+@@ -620,8 +622,8 @@ virtual_server group <STRING>      {	# VS group declaration
+     real_server <IP ADDRESS> <PORT> {	# Idem
+         weight <INTEGER>		# Idem
+         inhibit_on_failure		# Idem
+-        notify_up <STRING>|<QUOTED-STRING> # Idem
+-        notify_down <STRING>|<QUOTED-STRING> # Idem
++        notify_up <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
++        notify_down <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
+ 
+         SMTP_CHECK {                   # SMTP healthchecker
+             connect_ip <IP ADDRESS>     # Optional IP address to connect to
+@@ -658,8 +660,8 @@ virtual_server group <STRING>      {	# VS group declaration
+     real_server <IP ADDRESS> <PORT> {	# Idem
+         weight <INTEGER>		# Idem
+         inhibit_on_failure		# Idem
+-        notify_up <STRING>|<QUOTED-STRING> # Idem
+-        notify_down <STRING>|<QUOTED-STRING> # Idem
++        notify_up <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
++        notify_down <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
+ 
+         DNS_CHECK {                     # DNS healthchecker
+             connect_ip <IP ADDRESS>     # Optional IP address to connect to
+@@ -677,8 +679,8 @@ virtual_server group <STRING>      {	# VS group declaration
+     real_server <IP ADDRESS> <PORT> {	# Idem
+         weight <INTEGER>		# Idem
+         inhibit_on_failure		# Idem
+-        notify_up <STRING>|<QUOTED-STRING> # Idem
+-        notify_down <STRING>|<QUOTED-STRING> # Idem
++        notify_up <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
++        notify_down <STRING>|<QUOTED-STRING> [username [groupname]] # Idem
+ 
+         MISC_CHECK {				# MISC healthchecker
+             misc_path <STRING>|<QUOTED-STRING>	# External system script or program
+diff --git a/doc/man/man5/keepalived.conf.5 b/doc/man/man5/keepalived.conf.5
+index 9ce2206..be33063 100644
+--- a/doc/man/man5/keepalived.conf.5
++++ b/doc/man/man5/keepalived.conf.5
+@@ -711,10 +711,10 @@ A virtual_server can be a declaration of one of
+ 
+            # Script to execute when healthchecker
+            # considers service as up.
+-           notify_up <STRING>|<QUOTED-STRING>
++           notify_up <STRING>|<QUOTED-STRING> [username [groupname]]
+            # Script to execute when healthchecker
+            # considers service as down.
+-           notify_down <STRING>|<QUOTED-STRING>
++           notify_down <STRING>|<QUOTED-STRING> [username [groupname]]
+ 
+            uthreshold <INTEGER> # maximum number of connections to server
+            lthreshold <INTEGER> # minimum number of connections to server
+diff --git a/keepalived/check/check_misc.c b/keepalived/check/check_misc.c
+index ccb9b63..a041d81 100644
+--- a/keepalived/check/check_misc.c
++++ b/keepalived/check/check_misc.c
+@@ -44,6 +44,11 @@ static int misc_check_thread(thread_t *);
+ static int misc_check_child_thread(thread_t *);
+ static int misc_check_child_timeout_thread(thread_t *);
+ 
++static bool script_user_set;
++static bool remove_script;
++static misc_checker_t *misck_checker;
++
++
+ /* Configuration stream handling */
+ static void
+ free_misc_check(void *data)
+@@ -70,49 +75,83 @@ dump_misc_check(void *data)
+ static void
+ misc_check_handler(__attribute__((unused)) vector_t *strvec)
+ {
+-	misc_checker_t *misck_checker = (misc_checker_t *) MALLOC(sizeof (misc_checker_t));
+-
+-	misck_checker->uid = default_script_uid;
+-	misck_checker->gid = default_script_gid;
++	misck_checker = (misc_checker_t *) MALLOC(sizeof (misc_checker_t));
+ 
+-	/* queue new checker */
+-	queue_checker(free_misc_check, dump_misc_check, misc_check_thread,
+-		      misck_checker, NULL);
++	script_user_set = false;
+ }
+ 
+ static void
+ misc_path_handler(vector_t *strvec)
+ {
+-	misc_checker_t *misck_checker = CHECKER_GET();
++	if (!misck_checker)
++		return;
++
+ 	misck_checker->path = CHECKER_VALUE_STRING(strvec);
+ }
+ 
+ static void
+ misc_timeout_handler(vector_t *strvec)
+ {
+-	misc_checker_t *misck_checker = CHECKER_GET();
++	if (!misck_checker)
++		return;
++
+ 	misck_checker->timeout = CHECKER_VALUE_UINT(strvec) * TIMER_HZ;
+ }
+ 
+ static void
+ misc_dynamic_handler(__attribute__((unused)) vector_t *strvec)
+ {
+-	misc_checker_t *misck_checker = CHECKER_GET();
+-	misck_checker->dynamic = 1;
++	if (!misck_checker)
++		return;
++
++	misck_checker->dynamic = true;
+ }
+ 
+ static void
+ misc_user_handler(vector_t *strvec)
+ {
+-	misc_checker_t *misck_checker = CHECKER_GET();
++	if (!misck_checker)
++		return;
+ 
+ 	if (vector_size(strvec) < 2) {
+ 		log_message(LOG_INFO, "No user specified for misc checker script %s", misck_checker->path);
+ 		return;
+ 	}
+ 
+-	if (set_script_uid_gid(strvec, 1, &misck_checker->uid, &misck_checker->gid))
+-		log_message(LOG_INFO, "Failed to set uid/gid for misc checker script %s", misck_checker->path);
++	if (set_script_uid_gid(strvec, 1, &misck_checker->uid, &misck_checker->gid)) {
++		log_message(LOG_INFO, "Failed to set uid/gid for misc checker script %s - removing", misck_checker->path);
++		FREE(misck_checker);
++		misck_checker = NULL;
++	}
++	else
++		script_user_set = true;
++}
++
++static void
++misc_end_handler(void)
++{
++	if (!misck_checker)
++		return;
++
++	if (!script_user_set)
++	{
++log_message(LOG_INFO, "remove_script 1 %d", remove_script);
++		if ( set_default_script_user(NULL, NULL, global_data->script_security)) {
++			log_message(LOG_INFO, "Unable to set default user for misc script %s - removing", misck_checker->path);
++			FREE(misck_checker);
++			misck_checker = NULL;
++			return;
++		}
++
++log_message(LOG_INFO, "Setting uid.gid");
++		misck_checker->uid = default_script_uid;
++		misck_checker->gid = default_script_gid;
++	}
++
++	/* queue new checker */
++	queue_checker(free_misc_check, dump_misc_check, misc_check_thread, misck_checker, NULL);
++	misck_checker = NULL;
++log_message(LOG_INFO, "Leaving misc_end_handler");
+ }
+ 
+ void
+@@ -125,6 +164,7 @@ install_misc_check_keyword(void)
+ 	install_keyword("misc_dynamic", &misc_dynamic_handler);
+ 	install_keyword("warmup", &warmup_handler);
+ 	install_keyword("user", &misc_user_handler);
++	install_sublevel_end_handler(&misc_end_handler);
+ 	install_sublevel_end();
+ }
+ 
+@@ -251,13 +291,13 @@ misc_check_child_thread(thread_t * thread)
+ 		int status;
+ 		status = WEXITSTATUS(wait_status);
+ 		if (status == 0 ||
+-		    (misck_checker->dynamic == 1 && status >= 2 && status <= 255)) {
++		    (misck_checker->dynamic && status >= 2 && status <= 255)) {
+ 			/*
+ 			 * The actual weight set when using misc_dynamic is two less than
+ 			 * the exit status returned.  Effective range is 0..253.
+ 			 * Catch legacy case of status being 0 but misc_dynamic being set.
+ 			 */
+-			if (misck_checker->dynamic == 1 && status != 0)
++			if (misck_checker->dynamic && status != 0)
+ 				update_svr_wgt(status - 2, checker->vs,
+ 					       checker->rs, true);
+ 
+diff --git a/keepalived/check/check_parser.c b/keepalived/check/check_parser.c
+index 2adac98..382861c 100644
+--- a/keepalived/check/check_parser.c
++++ b/keepalived/check/check_parser.c
+@@ -322,14 +322,7 @@ inhibit_handler(__attribute__((unused)) vector_t *strvec)
+ static inline notify_script_t*
+ set_check_notify_script(vector_t *strvec)
+ {
+-	notify_script_t *script = notify_script_init(strvec, default_script_uid, default_script_gid);
+-
+-	if (vector_size(strvec) > 2 ) {
+-		if (set_script_uid_gid(strvec, 2, &script->uid, &script->gid))
+-			log_message(LOG_INFO, "Invalid user/group for quorum/notify script %s", script->name);
+-	}
+-
+-	return script;
++	return notify_script_init(strvec, "quorum/notify", global_data->script_security);
+ }
+ static void
+ notify_up_handler(vector_t *strvec)
+diff --git a/keepalived/core/global_parser.c b/keepalived/core/global_parser.c
+index 45d4cfb..a59fbc0 100644
+--- a/keepalived/core/global_parser.c
++++ b/keepalived/core/global_parser.c
+@@ -701,53 +701,6 @@ use_pid_dir_handler(__attribute__((unused)) vector_t *strvec)
+ 	use_pid_dir = true;
+ }
+ 
+-bool
+-set_script_uid_gid(vector_t *strvec, unsigned keyword_offset, uid_t *uid_p, gid_t *gid_p)
+-{
+-	char *username;
+-	char *groupname;
+-	uid_t uid;
+-	gid_t gid;
+-	struct passwd pwd;
+-	struct passwd *pwd_p;
+-	struct group grp;
+-	struct group *grp_p;
+-	int ret;
+-	char buf[getpwnam_buf_len];
+-
+-	username = strvec_slot(strvec, keyword_offset);
+-
+-	if ((ret = getpwnam_r(username, &pwd, buf, sizeof(buf), &pwd_p))) {
+-		log_message(LOG_INFO, "Unable to resolve script username '%s' - ignoring", username);
+-		return true;
+-	}
+-	if (!pwd_p) {
+-		log_message(LOG_INFO, "Script user '%s' does not exist", username);
+-		return true;
+-	}
+-
+-	uid = pwd.pw_uid;
+-	gid = pwd.pw_gid;
+-
+-	if (vector_size(strvec) > keyword_offset + 1) {
+-		groupname = strvec_slot(strvec, keyword_offset + 1);
+-		if ((ret = getgrnam_r(groupname, &grp, buf, sizeof(buf), &grp_p))) {
+-			log_message(LOG_INFO, "Unable to resolve script group name '%s' - ignoring", groupname);
+-			return true;
+-		}
+-		if (!grp_p) {
+-			log_message(LOG_INFO, "Script group '%s' does not exist", groupname);
+-			return true;
+-		}
+-		gid = grp.gr_gid;
+-	}
+-
+-	*uid_p = uid;
+-	*gid_p = gid;
+-
+-	return false;
+-}
+-
+ static void
+ script_user_handler(vector_t *strvec)
+ {
+@@ -756,7 +709,7 @@ script_user_handler(vector_t *strvec)
+ 		return;
+ 	}
+ 
+-	if (set_script_uid_gid(strvec, 1, &default_script_uid, &default_script_gid))
++	if (set_default_script_user(strvec_slot(strvec, 1), vector_size(strvec) > 2 ? strvec_slot(strvec, 2) : NULL, true))
+ 		log_message(LOG_INFO, "Error setting global script uid/gid");
+ }
+ 
+diff --git a/keepalived/core/main.c b/keepalived/core/main.c
+index 55eb263..95bb76a 100644
+--- a/keepalived/core/main.c
++++ b/keepalived/core/main.c
+@@ -119,6 +119,9 @@ free_parent_mallocs_startup(bool am_child)
+ #else
+ 		free(syslog_ident);
+ #endif
++
++		if (orig_core_dump_pattern)
++			FREE_PTR(orig_core_dump_pattern);
+ 	}
+ 
+ 	if (free_main_pidfile) {
+@@ -765,7 +768,6 @@ keepalived_main(int argc, char **argv)
+ 	bool report_stopped = true;
+ 	struct utsname uname_buf;
+ 	char *end;
+-	long buf_len;
+ 
+ 	/* Init debugging level */
+ 	debug = 0;
+@@ -814,17 +816,6 @@ keepalived_main(int argc, char **argv)
+ 
+ 	netlink_set_recv_buf_size();
+ 
+-	set_default_script_user(&default_script_uid, &default_script_gid);
+-
+-	/* Get buffer length needed for getpwnam_r/getgrnam_r */
+-	if ((buf_len = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1)
+-		getpwnam_buf_len = 1024;	/* A safe default if no value is returned */
+-	else
+-		getpwnam_buf_len = (size_t)buf_len;
+-	if ((buf_len = sysconf(_SC_GETGR_R_SIZE_MAX)) != -1 &&
+-	    (size_t)buf_len > getpwnam_buf_len)
+-		getpwnam_buf_len = (size_t)buf_len;
+-
+ 	/* Some functionality depends on kernel version, so get the version here */
+ 	if (uname(&uname_buf))
+ 		log_message(LOG_INFO, "Unable to get uname() information - error %d", errno);
+diff --git a/keepalived/include/check_misc.h b/keepalived/include/check_misc.h
+index ed0d962..ec97149 100644
+--- a/keepalived/include/check_misc.h
++++ b/keepalived/include/check_misc.h
+@@ -36,7 +36,7 @@
+ typedef struct _misc_checker {
+ 	char			*path;
+ 	unsigned long		timeout;
+-	int			dynamic;	/* 0: old-style, 1: exit code from checker affects weight */
++	bool			dynamic;	/* false: old-style, true: exit code from checker affects weight */
+ 	bool			forcing_termination; /* Set if we have sent the process a SIGTERM */
+ 	uid_t			uid;		/* uid for script execution */
+ 	gid_t			gid;		/* gid for script execution */
+diff --git a/keepalived/include/main.h b/keepalived/include/main.h
+index d125566..eebde77 100644
+--- a/keepalived/include/main.h
++++ b/keepalived/include/main.h
+@@ -73,8 +73,6 @@ extern bool namespace_with_ipsets;	/* override for namespaces with ipsets on Lin
+ #endif
+ extern char *instance_name;		/* keepalived instance name */
+ extern bool use_pid_dir;		/* pid files in /var/run/keepalived */
+-extern uid_t default_script_uid;	/* Default user/group for script execution */
+-extern gid_t default_script_gid;
+ extern unsigned os_major;		/* Kernel version */
+ extern unsigned os_minor;
+ extern unsigned os_release;
+diff --git a/keepalived/vrrp/vrrp_data.c b/keepalived/vrrp/vrrp_data.c
+index 76f17a4..b5c59df 100644
+--- a/keepalived/vrrp/vrrp_data.c
++++ b/keepalived/vrrp/vrrp_data.c
+@@ -160,8 +160,7 @@ dump_vscript(void *data)
+ 		str = (vscript->result >= vscript->rise) ? "GOOD" : "BAD";
+ 	}
+ 	log_message(LOG_INFO, "   Status = %s", str);
+-	if (vscript->uid || vscript->gid)
+-		log_message(LOG_INFO, "   Script uid:gid = %d:%d", vscript->uid, vscript->gid);
++	log_message(LOG_INFO, "   Script uid:gid = %d:%d", vscript->uid, vscript->gid);
+ 
+ }
+ 
+diff --git a/keepalived/vrrp/vrrp_parser.c b/keepalived/vrrp/vrrp_parser.c
+index 7a38315..c774dec 100644
+--- a/keepalived/vrrp/vrrp_parser.c
++++ b/keepalived/vrrp/vrrp_parser.c
+@@ -48,6 +48,9 @@
+ #include "bitops.h"
+ #include "notify.h"
+ 
++static bool script_user_set;
++static bool remove_script;
++
+ /* Static addresses handler */
+ static void
+ static_addresses_handler(__attribute__((unused)) vector_t *strvec)
+@@ -120,14 +123,7 @@ vrrp_group_handler(vector_t *strvec)
+ static inline notify_script_t*
+ set_vrrp_notify_script(vector_t *strvec)
+ {
+-	notify_script_t *script = notify_script_init(strvec, default_script_uid, default_script_gid);
+-
+-	if (vector_size(strvec) > 2) {
+-		if (set_script_uid_gid(strvec, 2, &script->uid, &script->gid))
+-			log_message(LOG_INFO, "Invalid user/group for notify script %s", script->name);
+-	}
+-
+-	return script;
++	return notify_script_init(strvec, "notify", global_data->script_security);
+ }
+ 
+ static void
+@@ -680,6 +676,8 @@ static void
+ vrrp_script_handler(vector_t *strvec)
+ {
+ 	alloc_vrrp_script(strvec_slot(strvec, 1));
++	script_user_set = false;
++	remove_script = false;
+ }
+ static void
+ vrrp_vscript_script_handler(vector_t *strvec)
+@@ -731,8 +729,35 @@ static void
+ vrrp_vscript_user_handler(vector_t *strvec)
+ {
+ 	vrrp_script_t *vscript = LIST_TAIL_DATA(vrrp_data->vrrp_script);
+-	if (set_script_uid_gid(strvec, 1, &vscript->uid, &vscript->gid))
+-		log_message(LOG_INFO, "Unable to set uid/gid for script %s", vscript->script);
++	if (set_script_uid_gid(strvec, 1, &vscript->uid, &vscript->gid)) {
++		log_message(LOG_INFO, "Unable to set uid/gid for script %s - disabling", vscript->script);
++		remove_script = true;
++	}
++	else
++		script_user_set = true;
++}
++static void
++vrrp_vscript_end_handler(void)
++{
++	vrrp_script_t *vscript = LIST_TAIL_DATA(vrrp_data->vrrp_script);
++
++	if (script_user_set)
++		return;
++
++	if (!remove_script &&
++	     set_default_script_user(NULL, NULL, global_data->script_security)) {
++		log_message(LOG_INFO, "Unable to set default user for track script %s - removing", vscript->script);
++		remove_script = true;
++	}
++
++	if (remove_script) {
++		free_list_element(vrrp_data->vrrp_script, vrrp_data->vrrp_script->tail);
++		return;
++	}
++
++	vscript->uid = default_script_uid;
++	vscript->gid = default_script_gid;
++
+ }
+ static void
+ vrrp_vscript_init_fail_handler(__attribute__((unused)) vector_t *strvec)
+@@ -964,6 +989,7 @@ init_vrrp_keywords(bool active)
+ 	install_keyword("fall", &vrrp_vscript_fall_handler);
+ 	install_keyword("user", &vrrp_vscript_user_handler);
+ 	install_keyword("init_fail", &vrrp_vscript_init_fail_handler);
++	install_sublevel_end_handler(&vrrp_vscript_end_handler);
+ }
+ 
+ vector_t *
+diff --git a/keepalived/vrrp/vrrp_print.c b/keepalived/vrrp/vrrp_print.c
+index 7adb701..54da044 100644
+--- a/keepalived/vrrp/vrrp_print.c
++++ b/keepalived/vrrp/vrrp_print.c
+@@ -92,6 +92,7 @@ vscript_print(FILE *file, void *data)
+ 	fprintf(file, "   Rise = %d\n", vscript->rise);
+ 	fprintf(file, "   Full = %d\n", vscript->fall);
+ 	fprintf(file, "   Insecure = %s\n", vscript->insecure ? "yes" : "no");
++	fprintf(file, "   uid:gid = %d:%d\n", vscript->uid, vscript->gid);
+ 
+ 	switch (vscript->result) {
+ 	case VRRP_SCRIPT_STATUS_INIT:
+diff --git a/lib/notify.c b/lib/notify.c
+index d92c50d..a8742fe 100644
+--- a/lib/notify.c
++++ b/lib/notify.c
+@@ -44,10 +44,15 @@
+ #include "vector.h"
+ #include "parser.h"
+ 
+-size_t getpwnam_buf_len;				/* Buffer length needed for getpwnam_r/getgrname_r */
+ 
++uid_t default_script_uid;				/* Default user/group for script execution */
++gid_t default_script_gid;
++static bool default_script_uid_set = false;
++static bool default_user_fail = false;			/* Set if failed to set default user,
++							   unless it defaults to root */
+ static char *path;
+ static bool path_is_malloced;
++static size_t getpwnam_buf_len;				/* Buffer length needed for getpwnam_r/getgrname_r */
+ 
+ /* perform a system call */
+ static int
+@@ -565,40 +570,135 @@ check_notify_script_secure(notify_script_t **script_p, bool script_security, boo
+ 	return flags;
+ }
+ 
+-/* The default script user/group is keepalived_script if it exists, or root otherwise */
+-void
+-set_default_script_user(uid_t *uid, gid_t *gid)
++static void
++set_pwnam_buf_len(void)
++{
++	long buf_len;
++
++	/* Get buffer length needed for getpwnam_r/getgrnam_r */
++	if ((buf_len = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1)
++		getpwnam_buf_len = 1024;	/* A safe default if no value is returned */
++	else
++		getpwnam_buf_len = (size_t)buf_len;
++	if ((buf_len = sysconf(_SC_GETGR_R_SIZE_MAX)) != -1 &&
++	    (size_t)buf_len > getpwnam_buf_len)
++		getpwnam_buf_len = (size_t)buf_len;
++}
++
++bool
++set_uid_gid(const char *username, const char *groupname, uid_t *uid_p, gid_t *gid_p, bool default_user)
+ {
+-	char buf[getpwnam_buf_len];
+-	char *default_user_name = "keepalived_script";
++	uid_t uid;
++	gid_t gid;
+ 	struct passwd pwd;
+ 	struct passwd *pwd_p;
++	struct group grp;
++	struct group *grp_p;
++	int ret;
++	bool using_default_default_user = false;
++
++	if (!getpwnam_buf_len)
++		set_pwnam_buf_len();
+ 
+-	if (getpwnam_r(default_user_name, &pwd, buf, sizeof(buf), &pwd_p)) {
+-		log_message(LOG_INFO, "Unable to resolve default script username '%s' - ignoring", default_user_name);
+-		return;
++	{
++		char buf[getpwnam_buf_len];
++
++		if (default_user && !username) {
++			using_default_default_user = true;
++			username = "keepalived_script";
++		}
++
++		if ((ret = getpwnam_r(username, &pwd, buf, sizeof(buf), &pwd_p))) {
++			log_message(LOG_INFO, "Unable to resolve %sscript username '%s' - ignoring", default_user ? "default " : "", username);
++			return true;
++		}
++		if (!pwd_p) {
++			if (using_default_default_user)
++				log_message(LOG_INFO, "WARNING - default user '%s' for script execution does not exist - please create.", username);
++			else
++				log_message(LOG_INFO, "%script user '%s' does not exist", default_user ? "Default s" : "S", username);
++			return true;
++		}
++
++		uid = pwd.pw_uid;
++		gid = pwd.pw_gid;
++
++		if (groupname) {
++			if ((ret = getgrnam_r(groupname, &grp, buf, sizeof(buf), &grp_p))) {
++				log_message(LOG_INFO, "Unable to resolve %sscript group name '%s' - ignoring", default_user ? "default " : "", groupname);
++				return true;
++			}
++			if (!grp_p) {
++				log_message(LOG_INFO, "%script group '%s' does not exist", default_user ? "Default s" : "S", groupname);
++				return true;
++			}
++			gid = grp.gr_gid;
++		}
++
++		*uid_p = uid;
++		*gid_p = gid;
+ 	}
+-	if (!pwd_p) {
+-		/* The username does not exist */
+-		log_message(LOG_INFO, "WARNING - default user '%s' for script execution does not exist - please create.", default_user_name);
+-		return;
++
++	return false;
++}
++
++bool
++set_default_script_user(const char *username, const char *groupname, bool script_security)
++{
++	if (!default_script_uid_set || username) {
++		/* Even if we fail to set it, there is no point in trying again */
++		default_script_uid_set = true;
++
++		if (set_uid_gid(username, groupname, &default_script_uid, &default_script_gid, true)) {
++			if (username || script_security)
++				default_user_fail = true;
++		}
++		else
++			default_user_fail = false;
+ 	}
+ 
+-	*uid = pwd.pw_uid;
+-	*gid = pwd.pw_gid;
++	return default_user_fail;
++}
++
++bool
++set_script_uid_gid(vector_t *strvec, unsigned keyword_offset, uid_t *uid_p, gid_t *gid_p)
++{
++	char *username;
++	char *groupname;
++
++	username = strvec_slot(strvec, keyword_offset);
++	if (vector_size(strvec) > keyword_offset + 1)
++		groupname = strvec_slot(strvec, keyword_offset + 1);
++	else
++		groupname = NULL;
+ 
+-	log_message(LOG_INFO, "Setting default script user to '%s', uid:gid %d:%d", default_user_name, pwd.pw_uid, pwd.pw_gid);
++	return set_uid_gid(username, groupname, uid_p, gid_p, false);
+ }
+ 
+ notify_script_t*
+-notify_script_init(vector_t *strvec, uid_t uid, gid_t gid)
++notify_script_init(vector_t *strvec, const char *type, bool script_security)
+ {
+ 	notify_script_t *script = MALLOC(sizeof(notify_script_t));
+ 
+ 	script->name = set_value(strvec);
+-	script->uid = uid;
+-	script->gid = gid;
++
++	if (vector_size(strvec) > 2) {
++		if (set_script_uid_gid(strvec, 2, &script->uid, &script->gid)) {
++			log_message(LOG_INFO, "Invalid user/group for %s script %s - ignoring", type, script->name);
++			FREE(script);
++			return NULL;
++		}
++        }
++	else {
++		if (set_default_script_user(NULL, NULL, script_security)) {
++			log_message(LOG_INFO, "Failed to set default user for %s script %s - ignoring", type, script->name);
++			FREE(script);
++			return NULL;
++		}
++
++		script->uid = default_script_uid;
++		script->gid = default_script_gid;
++	}
+ 
+ 	return script;
+ }
+-
+diff --git a/lib/notify.h b/lib/notify.h
+index ac07edb..3d092ea 100644
+--- a/lib/notify.h
++++ b/lib/notify.h
+@@ -56,7 +56,8 @@ free_notify_script(notify_script_t **script)
+ }
+ 
+ /* Global variables */
+-extern size_t getpwnam_buf_len;		/* Buffer length needed for getpwnam_r/getgrnam_r */
++extern uid_t default_script_uid;        /* Default user/group for script execution */
++extern gid_t default_script_gid;
+ 
+ /* prototypes */
+ extern int system_call_script(thread_master_t *, int (*) (thread_t *), void *, unsigned long, const char*, uid_t, gid_t);
+@@ -64,7 +65,7 @@ extern int notify_exec(const notify_script_t *);
+ extern void script_killall(thread_master_t *, int);
+ extern int check_script_secure(notify_script_t *, bool, bool);
+ extern int check_notify_script_secure(notify_script_t **, bool, bool);
+-extern void set_default_script_user(uid_t *, gid_t *);
+-extern notify_script_t* notify_script_init(vector_t *, uid_t, gid_t);
++extern bool set_default_script_user(const char *, const char *, bool);
++extern notify_script_t* notify_script_init(vector_t *, const char *, bool);
+ 
+ #endif
+-- 
+2.9.4
+

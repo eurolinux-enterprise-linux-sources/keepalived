@@ -1,0 +1,168 @@
+From 19d0482859d9068b893104b9f8beeaba709aec2d Mon Sep 17 00:00:00 2001
+From: Quentin Armitage <quentin@armitage.org.uk>
+Date: Mon, 27 Mar 2017 11:28:02 +0100
+Subject: [PATCH 2/3] Don't segfault if unable to load ip_vs module
+
+In a docker container it isn't possible to load a kernel module. The
+check code was detecting that it couldn't load the module, but the
+checker process, when cleaning up prior to exiting, was assuming that
+certain pointers had been initialised which hadn't been when an error
+was detected so early in the initialisation.
+
+This commit adds testing for uninitialised pointers during the exit
+sequence.
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+---
+ keepalived/check/check_api.c         | 3 +++
+ keepalived/check/check_daemon.c      | 8 +++++---
+ keepalived/check/check_data.c        | 7 ++++++-
+ keepalived/check/ipvswrapper.c       | 9 ++++++---
+ keepalived/check/ipwrapper.c         | 6 ++++--
+ keepalived/check/libipvs.c           | 5 ++++-
+ keepalived/core/keepalived_netlink.c | 7 ++++---
+ 7 files changed, 32 insertions(+), 13 deletions(-)
+
+diff --git a/keepalived/check/check_api.c b/keepalived/check/check_api.c
+index 51d8cc71..b7081fd0 100644
+--- a/keepalived/check/check_api.c
++++ b/keepalived/check/check_api.c
+@@ -224,6 +224,9 @@ init_checkers_queue(void)
+ void
+ free_checkers_queue(void)
+ {
++	if (!checkers_queue)
++		return;
++
+ 	free_list(&checkers_queue);
+ 	ncheckers = 0;
+ }
+diff --git a/keepalived/check/check_daemon.c b/keepalived/check/check_daemon.c
+index a87fd4cd..a3ff8cab 100644
+--- a/keepalived/check/check_daemon.c
++++ b/keepalived/check/check_daemon.c
+@@ -74,7 +74,7 @@ stop_check(int status)
+ 		clear_services();
+ 	ipvs_stop();
+ #ifdef _WITH_SNMP_CHECKER_
+-	if (global_data->enable_snmp_checker)
++	if (global_data && global_data->enable_snmp_checker)
+ 		check_snmp_agent_close();
+ #endif
+ 
+@@ -82,8 +82,10 @@ stop_check(int status)
+ 	pidfile_rm(checkers_pidfile);
+ 
+ 	/* Clean data */
+-	free_global_data(global_data);
+-	free_check_data(check_data);
++	if (global_data)
++		free_global_data(global_data);
++	if (check_data)
++		free_check_data(check_data);
+ 	free_parent_mallocs_exit();
+ 
+ 	/*
+diff --git a/keepalived/check/check_data.c b/keepalived/check/check_data.c
+index 0c3f1940..6ce87229 100644
+--- a/keepalived/check/check_data.c
++++ b/keepalived/check/check_data.c
+@@ -51,7 +51,12 @@ alloc_ssl(void)
+ void
+ free_ssl(void)
+ {
+-	ssl_data_t *ssl = check_data->ssl;
++	ssl_data_t *ssl;
++       
++	if (!check_data)
++		return;
++
++	ssl = check_data->ssl;
+ 
+ 	if (!ssl)
+ 		return;
+diff --git a/keepalived/check/ipvswrapper.c b/keepalived/check/ipvswrapper.c
+index cd7f169e..20757c94 100644
+--- a/keepalived/check/ipvswrapper.c
++++ b/keepalived/check/ipvswrapper.c
+@@ -165,9 +165,12 @@ void
+ ipvs_stop(void)
+ {
+ 	/* Clean up the room */
+-	FREE(srule);
+-	FREE(drule);
+-	FREE(daemonrule);
++	if (srule)
++		FREE(srule);
++	if (drule)
++		FREE(drule);
++	if (daemonrule)
++		FREE(daemonrule);
+ 	ipvs_close();
+ }
+ 
+diff --git a/keepalived/check/ipwrapper.c b/keepalived/check/ipwrapper.c
+index 0c2fc46b..ecf12713 100644
+--- a/keepalived/check/ipwrapper.c
++++ b/keepalived/check/ipwrapper.c
+@@ -138,10 +138,12 @@ void
+ clear_services(void)
+ {
+ 	element e;
+-	list l = check_data->vs;
+ 	virtual_server_t *vs;
+ 
+-	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
++	if (!check_data || !check_data->vs)
++		return;
++
++	for (e = LIST_HEAD(check_data->vs); e; ELEMENT_NEXT(e)) {
+ 		vs = ELEMENT_DATA(e);
+ 		clear_service_vs(vs);
+ 	}
+diff --git a/keepalived/check/libipvs.c b/keepalived/check/libipvs.c
+index 2250e2b4..8722f7a6 100644
+--- a/keepalived/check/libipvs.c
++++ b/keepalived/check/libipvs.c
+@@ -1157,7 +1157,10 @@ void ipvs_close(void)
+ 	if (try_nl)
+ 		return;
+ #endif
+-	close(sockfd);
++	if (sockfd != -1) {
++		close(sockfd);
++		sockfd = -1;
++	}
+ }
+ 
+ const char *ipvs_strerror(int err)
+diff --git a/keepalived/core/keepalived_netlink.c b/keepalived/core/keepalived_netlink.c
+index 41e63b85..0f465cf5 100644
+--- a/keepalived/core/keepalived_netlink.c
++++ b/keepalived/core/keepalived_netlink.c
+@@ -251,9 +251,12 @@ netlink_socket(nl_handle_t *nl, int flags, int group, ...)
+ }
+ 
+ /* Close a netlink socket */
+-static int
++static void
+ netlink_close(nl_handle_t *nl)
+ {
++	if (!nl)
++		return;
++
+ 	/* First of all release pending thread */
+ 	thread_cancel(nl->thread);
+ 
+@@ -269,8 +272,6 @@ netlink_close(nl_handle_t *nl)
+ #endif
+ 		close(nl->fd);
+ #endif
+-
+-	return 0;
+ }
+ 
+ #ifdef _WITH_VRRP_
+-- 
+2.13.5
+
