@@ -9,7 +9,7 @@
 Name: keepalived
 Summary: Load balancer and high availability service
 Version: 1.3.5
-Release: 16%{?dist}
+Release: 6%{?dist}
 License: GPLv2+
 URL: http://www.keepalived.org/
 Group: System Environment/Daemons
@@ -24,20 +24,6 @@ Patch3: bz1508435-load-ip-tables-handling.patch
 Patch4: bz1508435-no-segfault-ip_vs-load.patch
 Patch5: bz1508435-remove-ipset-handling.patch
 Patch6: bz1477587-exclude-mismatch-vips.patch
-Patch7: bz1652694-fix-buffer-overflow-http-status.patch
-patch8: bz1654301-fix-improper-pathname-validation.patch
-patch9: bz1667292-fix-vrrp_script-misc_script.patch
-patch10: bz1678480-add-child_wait_time.patch
-patch11: bz1678480-migrate-failed-checkers-reload.patch
-patch12: bz1678480-implment-checker-comparison.patch
-patch13: bz1678480-fix-wrong-migrate-checker-id.patch
-patch14: bz1678480-set-active-if-failed-checkers-empty.patch
-patch15: bz1678480-fix-checker-coding-style.patch
-patch16: bz1678480-remove-unnecessary-parameter-compare.patch
-patch17: bz1678480-resolve-compiler-warning.patch
-patch18: bz1678480-include-check_api-in-ipwrapper.patch
-patch19: bz1715308-make-checker-variables-non-global.patch
-patch20: bz1715308-fix-checkers-comparison-on-reload.patch
 
 Requires: ipset-libs
 Requires(post): systemd
@@ -75,20 +61,6 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %patch4 -p1
 %patch5 -p1
 %patch6 -p1
-%patch7 -p1
-%patch8 -p1
-%patch9 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
-%patch18 -p1
-%patch19 -p1
-%patch20 -p1
 
 %build
 %configure \
@@ -145,36 +117,6 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %{_mandir}/man8/keepalived.8*
 
 %changelog
-* Fri Jun 14 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-16
-- Rework previous misc_script/vrrp_script patch (#1667292)
-
-* Mon Jun 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-15
-- Rework previous checker comparison patch (#1715308)
-
-* Fri May 31 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-14
-- Make checker variables non global (#1715308)
-
-* Fri May 31 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-13
-- Fix comparison of checkers on reload (#1715308)
-
-* Wed Apr 03 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-12
-- Fix build errors (#1678480)
-
-* Tue Apr 02 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-11
-- Fix problems with health checks & real servers after reload/restart (#1678480)
-
-* Fri Jan 25 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-10
-- Fix vrrp_script and check_misc scripts of type "</dev/tcp/127.0.0.1/80" (#1667292)
-
-* Thu Jan 24 2019 Ryan O'Hara <rohara@redhat.com> - 1.3.5-9
-- Fix improper pathname validation (#1654301)
-
-* Thu Dec 13 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8
-- Fixed patch that was incorrectly removed (#1652694)
-
-* Mon Dec 10 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-7
-- Fix buffer overflow when parsing HTTP status codes (#1652694)
-
 * Wed Jan 31 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-6
 - Add net-snmp as BuildRequires (#1536252)
 
