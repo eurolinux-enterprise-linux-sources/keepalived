@@ -9,7 +9,7 @@
 Name: keepalived
 Summary: Load balancer and high availability service
 Version: 1.3.5
-Release: 8%{?dist}
+Release: 1%{?dist}
 License: GPLv2+
 URL: http://www.keepalived.org/
 Group: System Environment/Daemons
@@ -18,22 +18,13 @@ Source0: http://www.keepalived.org/software/keepalived-%{version}.tar.gz
 Source1: keepalived.service
 
 Patch0: bz1419049-fix-unused-variables.patch
-Patch1: bz1477572-fix-man-page-vrrp_ipsets.patch
-Patch2: bz1477563-fix-keepalived_script-user.patch
-Patch3: bz1508435-load-ip-tables-handling.patch
-Patch4: bz1508435-no-segfault-ip_vs-load.patch
-Patch5: bz1508435-remove-ipset-handling.patch
-Patch6: bz1477587-exclude-mismatch-vips.patch
-Patch7: bz1652694-fix-buffer-overflow-http-status.patch
 
-Requires: ipset-libs
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 %if %{with snmp}
-BuildRequires: net-snmp
 BuildRequires: net-snmp-devel
 %endif
 BuildRequires: systemd-units
@@ -56,13 +47,6 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %prep
 %setup -q
 %patch0 -p1
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
 
 %build
 %configure \
@@ -119,27 +103,6 @@ Keepalived also implements the Virtual Router Redundancy Protocol
 %{_mandir}/man8/keepalived.8*
 
 %changelog
-* Thu Dec 31 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-8
-- Fixed patch that was incorrectly removed (#1652694)
-
-* Mon Dec 10 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-7
-- Fix buffer overflow when parsing HTTP status codes (#1652694)
-
-* Wed Jan 31 2018 Ryan O'Hara <rohara@redhat.com> - 1.3.5-6
-- Add net-snmp as BuildRequires (#1536252)
-
-* Mon Dec 11 2017 Ryan O'Hara <rohara@redhat.com> - 1.3.5-5
-- Exclude VIPs of non-matching address family (#1477587)
-
-* Thu Nov 16 2017 Ryan O'Hara <rohara@redhat.com> - 1.3.5-4
-- Fix bugs related to failures when load modules and/or segfaults (#1508435)
-
-* Wed Aug 02 2017 Ryan O'Hara <rohara@redhat.com> - 1.3.5-3
-- Don't complain about keepalived_script user if not needed (#1477563)
-
-* Wed Aug 02 2017 Ryan O'Hara <rohara@redhat.com> - 1.3.5-2
-- Fix ipset-libs dependency and vrrp_ipset in man page (#1477572)
-
 * Wed Mar 22 2017 Ryan O'Hara <rohara@redhat.com> - 1.3.5-1
 - Rebase to upstream version 1.3.5 (#1419049)
 
