@@ -1,0 +1,420 @@
+From fce93460597d27a86798c57ec410f63e4bd33be9 Mon Sep 17 00:00:00 2001
+From: YAMAMOTO Masaya <pandax381@gmail.com>
+Date: Fri, 7 Jul 2017 19:27:16 +0900
+Subject: [PATCH 3/8] Implement comparison of checkers
+
+---
+ keepalived/check/check_api.c    | 29 ++++++++++++++++++++++++-
+ keepalived/check/check_daemon.c |  7 +++++-
+ keepalived/check/check_dns.c    | 24 +++++++++++++++++++--
+ keepalived/check/check_http.c   | 35 +++++++++++++++++++++++++++++-
+ keepalived/check/check_misc.c   | 22 ++++++++++++++++++-
+ keepalived/check/check_smtp.c   | 33 +++++++++++++++++++++++++++-
+ keepalived/check/check_tcp.c    | 22 +++++++++++++++++--
+ keepalived/check/ipwrapper.c    | 38 +++++++++++++++++++++++++--------
+ keepalived/include/check_api.h  |  5 +++++
+ 9 files changed, 197 insertions(+), 18 deletions(-)
+
+diff --git a/keepalived/check/check_api.c b/keepalived/check/check_api.c
+index b7081fd0..a722fc84 100644
+--- a/keepalived/check/check_api.c
++++ b/keepalived/check/check_api.c
+@@ -42,8 +42,9 @@
+ #include "check_dns.h"
+ 
+ /* Global vars */
+-static checker_id_t ncheckers = 0;
++checker_id_t ncheckers = 0;
+ list checkers_queue;
++list old_checkers_queue;
+ 
+ /* free checker data */
+ static void
+@@ -80,6 +81,7 @@ dump_conn_opts(void *data)
+ void
+ queue_checker(void (*free_func) (void *), void (*dump_func) (void *)
+ 	      , int (*launch) (thread_t *)
++	      , int (*compare) (void *, void *)
+ 	      , void *data
+ 	      , conn_opts_t *co)
+ {
+@@ -96,6 +98,7 @@ queue_checker(void (*free_func) (void *), void (*dump_func) (void *)
+ 	checker->free_func = free_func;
+ 	checker->dump_func = dump_func;
+ 	checker->launch = launch;
++	checker->compare = compare;
+ 	checker->vs = vs;
+ 	checker->rs = rs;
+ 	checker->data = data;
+@@ -117,6 +120,30 @@ queue_checker(void (*free_func) (void *), void (*dump_func) (void *)
+ 	}
+ }
+ 
++int
++compare_conn_opts(conn_opts_t *a, conn_opts_t *b)
++{
++	if (a == b)
++		return 0;
++
++	if (!a || !b)
++		goto err;
++	if (!sockstorage_equal(&a->dst, &b->dst))
++		goto err;
++	if (!sockstorage_equal(&a->bindto, &b->bindto))
++		goto err;
++	//if (a->connection_to != b->connection_to)
++	//	goto err;
++#ifdef _WITH_SO_MARK_
++	if (a->fwmark != b->fwmark)
++		goto err;
++#endif
++
++	return  0;
++err:
++	return -1;
++}
++
+ static void
+ checker_set_dst_port(struct sockaddr_storage *dst, uint16_t port)
+ {
+diff --git a/keepalived/check/check_daemon.c b/keepalived/check/check_daemon.c
+index a3ff8cab..462360e6 100644
+--- a/keepalived/check/check_daemon.c
++++ b/keepalived/check/check_daemon.c
+@@ -233,7 +233,11 @@ reload_check_thread(__attribute__((unused)) thread_t * thread)
+ 	thread_cleanup_master(master);
+ 	free_global_data(global_data);
+ 
+-	free_checkers_queue();
++	/* Save previous checker data */
++	old_checkers_queue = checkers_queue;
++	checkers_queue = NULL;
++	ncheckers = 0;
++
+ 	free_ssl();
+ 	ipvs_stop();
+ 
+@@ -246,6 +250,7 @@ reload_check_thread(__attribute__((unused)) thread_t * thread)
+ 
+ 	/* free backup data */
+ 	free_check_data(old_check_data);
++	free_list(&old_checkers_queue);
+ 	UNSET_RELOAD;
+ 
+ 	return 0;
+diff --git a/keepalived/check/check_dns.c b/keepalived/check/check_dns.c
+index 96328027..84a5f56d 100644
+--- a/keepalived/check/check_dns.c
++++ b/keepalived/check/check_dns.c
+@@ -388,6 +388,26 @@ dns_dump(void *data)
+ 	log_message(LOG_INFO, "   Name = %s", dns_check->name);
+ }
+ 
++static int
++dns_compare(void *a, void *b)
++{
++	dns_check_t *old = CHECKER_DATA(a);
++	dns_check_t *new = CHECKER_DATA(b);
++
++	if (compare_conn_opts(CHECKER_CO(a), CHECKER_CO(b)) != 0)
++		goto err;
++	if (old->retry != new->retry)
++		goto err;
++	if (strcmp(old->type, new->type) != 0)
++		goto err;
++	if (strcmp(old->name, new->name) != 0)
++		goto err;
++
++	return  0;
++err:
++	return -1;
++}
++
+ static void
+ dns_check_handler(__attribute__((unused)) vector_t * strvec)
+ {
+@@ -396,8 +416,8 @@ dns_check_handler(__attribute__((unused)) vector_t * strvec)
+ 	dns_check->attempts = 0;
+ 	dns_check->type = DNS_DEFAULT_TYPE;
+ 	dns_check->name = DNS_DEFAULT_NAME;
+-	queue_checker(dns_free, dns_dump, dns_connect_thread, dns_check,
+-		      CHECKER_NEW_CO());
++	queue_checker(dns_free, dns_dump, dns_connect_thread,
++		      dns_compare, dns_check, CHECKER_NEW_CO());
+ }
+ 
+ static void
+diff --git a/keepalived/check/check_http.c b/keepalived/check/check_http.c
+index 05e29b23..c2089a3b 100644
+--- a/keepalived/check/check_http.c
++++ b/keepalived/check/check_http.c
+@@ -123,6 +123,38 @@ alloc_http_get(char *proto)
+ 	return http_get_chk;
+ }
+ 
++static int
++compare_http_get_check(void *a, void *b)
++{
++	http_checker_t *old = CHECKER_DATA(a);
++	http_checker_t *new = CHECKER_DATA(b);
++	size_t n;
++	url_t *u1, *u2;
++
++	if (compare_conn_opts(CHECKER_CO(a), CHECKER_CO(b)) != 0)
++		goto err;
++	if (old->nb_get_retry != new->nb_get_retry)
++		goto err;
++	if (old->delay_before_retry != new->delay_before_retry)
++		goto err;
++	if (LIST_SIZE(old->url) != LIST_SIZE(new->url))
++		goto err;
++	for (n = 0; n < LIST_SIZE(new->url); n++) {
++		u1 = (url_t *)list_element(old->url, n);
++		u2 = (url_t *)list_element(new->url, n);
++		if (strcmp(u1->path, u2->path) != 0)
++			goto err;
++		if (strcmp(u1->digest, u2->digest) != 0)
++			goto err;
++		if (u1->status_code != u2->status_code)
++			goto err;
++	}
++
++	return  0;
++err:
++	return -1;
++}
++
+ static void
+ http_get_handler(vector_t *strvec)
+ {
+@@ -132,7 +164,8 @@ http_get_handler(vector_t *strvec)
+ 	/* queue new checker */
+ 	http_get_chk = alloc_http_get(str);
+ 	queue_checker(free_http_get_check, dump_http_get_check,
+-		      http_connect_thread, http_get_chk, CHECKER_NEW_CO());
++		      http_connect_thread, compare_http_get_check,
++		      http_get_chk, CHECKER_NEW_CO());
+ }
+ 
+ static void
+diff --git a/keepalived/check/check_misc.c b/keepalived/check/check_misc.c
+index 10ac1e23..311a1127 100644
+--- a/keepalived/check/check_misc.c
++++ b/keepalived/check/check_misc.c
+@@ -72,6 +72,26 @@ dump_misc_check(void *data)
+ 	log_message(LOG_INFO, "   insecure = %s", misck_checker->insecure ? "Yes" : "No");
+ }
+ 
++static int
++compare_misc_check(void *a, void *b)
++{
++	misc_checker_t *old = CHECKER_DATA(a);
++	misc_checker_t *new = CHECKER_DATA(b);
++
++	if (strcmp(old->path, new->path) != 0)
++		goto err;
++	if (old->timeout != new->timeout)
++		goto err;
++	if (old->dynamic != new->dynamic)
++		goto err;
++	if (old->uid != new->uid || new->gid != new->gid)
++		goto err;
++
++	return  0;
++err:
++	return -1;
++}
++
+ static void
+ misc_check_handler(__attribute__((unused)) vector_t *strvec)
+ {
+@@ -149,7 +169,7 @@ log_message(LOG_INFO, "Setting uid.gid");
+ 	}
+ 
+ 	/* queue new checker */
+-	queue_checker(free_misc_check, dump_misc_check, misc_check_thread, misck_checker, NULL);
++	queue_checker(free_misc_check, dump_misc_check, misc_check_thread, compare_misc_check, misck_checker, NULL);
+ 	misck_checker = NULL;
+ log_message(LOG_INFO, "Leaving misc_end_handler");
+ }
+diff --git a/keepalived/check/check_smtp.c b/keepalived/check/check_smtp.c
+index 901b77f5..e19511cc 100644
+--- a/keepalived/check/check_smtp.c
++++ b/keepalived/check/check_smtp.c
+@@ -82,6 +82,37 @@ dump_smtp_check(void *data)
+ 	dump_list(smtp_checker->host);
+ }
+ 
++static int
++compare_smtp_check(void *a, void *b)
++{
++	smtp_checker_t *old = CHECKER_DATA(a);
++	smtp_checker_t *new = CHECKER_DATA(b);
++	size_t n;
++	smtp_host_t *h1, *h2;
++
++	if (strcmp(old->helo_name, new->helo_name) != 0)
++		goto err;
++	if (old->retry != new->retry)
++		goto err;
++	if (old->db_retry != new->db_retry)
++		goto err;
++	if (compare_conn_opts(CHECKER_CO(a), CHECKER_CO(b)) != 0)
++		goto err;
++	if (LIST_SIZE(old->host) != LIST_SIZE(new->host))
++		goto err;
++	for (n = 0; n < LIST_SIZE(new->host); n++) {
++		h1 = (smtp_host_t *)list_element(old->host, n);
++		h2 = (smtp_host_t *)list_element(new->host, n);
++		if (compare_conn_opts(h1, h2) != 0) {
++			goto err;
++		}
++	}
++
++	return  0;
++err:
++	return -1;
++}
++
+ /* Allocates a default host structure */
+ static smtp_host_t *
+ smtp_alloc_host(void)
+@@ -136,7 +167,7 @@ smtp_check_handler(__attribute__((unused)) vector_t *strvec)
+ 	 *               void *data, conn_opts_t *)
+ 	 */
+ 	queue_checker(free_smtp_check, dump_smtp_check, smtp_connect_thread,
+-		      smtp_checker, smtp_checker->default_co);
++		      compare_smtp_check, smtp_checker, smtp_checker->default_co);
+ 
+ 	/*
+ 	 * Last, allocate the list that will hold all the per host
+diff --git a/keepalived/check/check_tcp.c b/keepalived/check/check_tcp.c
+index 078ba705..026a0e3c 100644
+--- a/keepalived/check/check_tcp.c
++++ b/keepalived/check/check_tcp.c
+@@ -62,6 +62,24 @@ dump_tcp_check(void *data)
+ 	}
+ }
+ 
++static int
++compare_tcp_check(void *a, void *b)
++{
++	tcp_check_t *old = CHECKER_DATA(a);
++	tcp_check_t *new = CHECKER_DATA(b);
++
++	if (compare_conn_opts(CHECKER_CO(a), CHECKER_CO(b)) != 0)
++		goto err;
++	if (old->n_retry != new->n_retry)
++		goto err;
++	if (old->delay_before_retry != new->delay_before_retry)
++		goto err;
++
++	return  0;
++err:
++	return -1;
++}
++
+ static void
+ tcp_check_handler(__attribute__((unused)) vector_t *strvec)
+ {
+@@ -72,8 +90,8 @@ tcp_check_handler(__attribute__((unused)) vector_t *strvec)
+ 	tcp_check->delay_before_retry = 1 * TIMER_HZ;
+ 
+ 	/* queue new checker */
+-	queue_checker(free_tcp_check, dump_tcp_check, tcp_connect_thread
+-		      ,tcp_check, CHECKER_NEW_CO());
++	queue_checker(free_tcp_check, dump_tcp_check, tcp_connect_thread,
++		      compare_tcp_check, tcp_check, CHECKER_NEW_CO());
+ }
+ 
+ static void
+diff --git a/keepalived/check/ipwrapper.c b/keepalived/check/ipwrapper.c
+index 6acf18ba..49262e25 100644
+--- a/keepalived/check/ipwrapper.c
++++ b/keepalived/check/ipwrapper.c
+@@ -626,20 +626,40 @@ rs_exist(real_server_t * old_rs, list l)
+ static void
+ migrate_failed_checkers(real_server_t *old_rs, real_server_t *new_rs)
+ {
+-	element e;
+-	checker_t *checker;
++	list l;
++	element e, e1;
++	checker_t *old_c, *new_c;
+ 	checker_id_t *id;
+ 
+-	/* Notes: It's a provisional implementation */
+-	(void)old_rs;
++	l = alloc_list(NULL, NULL);
++	for (e = LIST_HEAD(old_checkers_queue); e; ELEMENT_NEXT(e)) {
++		old_c = ELEMENT_DATA(e);
++		if (old_c->rs == old_rs) {
++			list_add(l, old_c);
++		}
++	}
++
++	if (LIST_ISEMPTY(l))
++		goto end;
++
+ 	for (e = LIST_HEAD(checkers_queue); e; ELEMENT_NEXT(e)) {
+-		checker = ELEMENT_DATA(e);
+-		if (checker->rs == new_rs) {
+-			id = (checker_id_t *) MALLOC(sizeof(checker_id_t));
+-			*id = checker->id;
+-			list_add(new_rs->failed_checkers, id);
++		new_c = ELEMENT_DATA(e);
++		if (new_c->rs != new_rs || !new_c->compare)
++			continue;
++		for (e1 = LIST_HEAD(l); e1; ELEMENT_NEXT(e1)) {
++			old_c = ELEMENT_DATA(e1);
++			if (old_c->compare == new_c->compare && new_c->compare(old_c, new_c) == 0) {
++				if (svr_checker_up(old_c->id, old_rs) == 0) {
++					id = (checker_id_t *) MALLOC(sizeof(checker_id_t));
++					*id = old_c->id;
++					list_add(new_rs->failed_checkers, id);
++				}
++				break;
++			}
+ 		}
+ 	}
++end:
++	free_list(&l);
+ }
+ 
+ /* Clear the diff rs of the old vs */
+diff --git a/keepalived/include/check_api.h b/keepalived/include/check_api.h
+index 359c794a..4a10a36b 100644
+--- a/keepalived/include/check_api.h
++++ b/keepalived/include/check_api.h
+@@ -36,6 +36,7 @@ typedef struct _checker {
+ 	void				(*free_func) (void *);
+ 	void				(*dump_func) (void *);
+ 	int				(*launch) (struct _thread *);
++	int				(*compare) (void *, void *);
+ 	virtual_server_t		*vs;	/* pointer to the checker thread virtualserver */
+ 	real_server_t			*rs;	/* pointer to the checker thread realserver */
+ 	void				*data;
+@@ -46,7 +47,9 @@ typedef struct _checker {
+ } checker_t;
+ 
+ /* Checkers queue */
++extern checker_id_t ncheckers;
+ extern list checkers_queue;
++extern list old_checkers_queue;
+ 
+ /* utility macro */
+ #define CHECKER_ARG(X) ((X)->data)
+@@ -68,8 +71,10 @@ extern void init_checkers_queue(void);
+ extern void dump_conn_opts(void *);
+ extern void queue_checker(void (*free_func) (void *), void (*dump_func) (void *)
+ 			  , int (*launch) (thread_t *)
++			  , int (*compare) (void *, void *)
+ 			  , void *
+ 			  , conn_opts_t *);
++extern int  compare_conn_opts(conn_opts_t *, conn_opts_t *);
+ extern void dump_checkers_queue(void);
+ extern void free_checkers_queue(void);
+ extern void register_checkers_thread(void);
+-- 
+2.20.1
+

@@ -1,0 +1,54 @@
+From 83d10ba08b8cd550196ae14f4f40fdbb72078057 Mon Sep 17 00:00:00 2001
+From: Quentin Armitage <quentin@armitage.org.uk>
+Date: Thu, 22 Mar 2018 16:54:54 +0000
+Subject: [PATCH] Fix vrrp_script and check_misc scripts of type
+ </dev/tcp/127.0.0.1/80
+
+Issue #817 identified that these types of "scripts" no longer worked.
+
+Signed-off-by: Quentin Armitage <quentin@armitage.org.uk>
+---
+ keepalived/check/check_misc.c | 8 ++++++++
+ keepalived/vrrp/vrrp.c        | 7 +++++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/keepalived/check/check_misc.c b/keepalived/check/check_misc.c
+index ccb9b63b..7d7e740b 100644
+--- a/keepalived/check/check_misc.c
++++ b/keepalived/check/check_misc.c
+@@ -149,6 +149,14 @@ check_misc_script_security(void)
+ 			continue;
+ 
+ 		misc_script = CHECKER_ARG(checker);
++
++		/* If the misc check script starts "</" (possibly with white space between
++		 * the '<' and '/'), it is checking for a file being openable,
++		 * so it won't be executed */
++		if (misc_script->path[0] == '<' &&
++		    misc_script->path[strspn(misc_script->path + 1, " \t") + 1] == '/')
++			return 0;
++
+ 		script.name = misc_script->path;
+ 		script.uid = misc_script->uid;
+ 		script.gid = misc_script->gid;
+diff --git a/keepalived/vrrp/vrrp.c b/keepalived/vrrp/vrrp.c
+index 3d2bfe41..c18a8d17 100644
+--- a/keepalived/vrrp/vrrp.c
++++ b/keepalived/vrrp/vrrp.c
+@@ -149,6 +149,13 @@ check_track_script_secure(tracked_sc_t *script)
+ 	if (script->scr->insecure)
+ 		return 0;
+ 
++	/* If the track script starts "</" (possibly with white space between
++	 * the '<' and '/'), it is checking for a file being openable,
++	 * so it won't be executed */
++	if (script->scr->script[0] == '<' &&
++	    script->scr->script[strspn(script->scr->script + 1, " \t") + 1] == '/')
++		return 0;
++
+ 	ns.name = script->scr->script;
+ 	ns.uid = script->scr->uid;
+ 	ns.gid = script->scr->gid;
+-- 
+2.21.0
+

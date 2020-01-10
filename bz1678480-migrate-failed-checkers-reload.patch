@@ -1,0 +1,89 @@
+From 6c5646bec26fe86214a34a877b84da83f9d9cfb4 Mon Sep 17 00:00:00 2001
+From: YAMAMOTO Masaya <pandax381@gmail.com>
+Date: Tue, 4 Jul 2017 15:08:36 +0900
+Subject: [PATCH 2/8] Migrate failed checkers at reload (provisional
+ implementation)
+
+---
+ keepalived/check/ipwrapper.c | 36 +++++++++++++++++++++++++-----------
+ 1 file changed, 25 insertions(+), 11 deletions(-)
+
+diff --git a/keepalived/check/ipwrapper.c b/keepalived/check/ipwrapper.c
+index ecf12713..6acf18ba 100644
+--- a/keepalived/check/ipwrapper.c
++++ b/keepalived/check/ipwrapper.c
+@@ -623,9 +623,28 @@ rs_exist(real_server_t * old_rs, list l)
+ 	return NULL;
+ }
+ 
++static void
++migrate_failed_checkers(real_server_t *old_rs, real_server_t *new_rs)
++{
++	element e;
++	checker_t *checker;
++	checker_id_t *id;
++
++	/* Notes: It's a provisional implementation */
++	(void)old_rs;
++	for (e = LIST_HEAD(checkers_queue); e; ELEMENT_NEXT(e)) {
++		checker = ELEMENT_DATA(e);
++		if (checker->rs == new_rs) {
++			id = (checker_id_t *) MALLOC(sizeof(checker_id_t));
++			*id = checker->id;
++			list_add(new_rs->failed_checkers, id);
++		}
++	}
++}
++
+ /* Clear the diff rs of the old vs */
+ static void
+-clear_diff_rs(virtual_server_t * old_vs, list new_rs_list)
++clear_diff_rs(virtual_server_t *old_vs, virtual_server_t *new_vs)
+ {
+ 	element e;
+ 	list l = old_vs->rs;
+@@ -639,7 +658,7 @@ clear_diff_rs(virtual_server_t * old_vs, list new_rs_list)
+ 	list rs_to_remove = alloc_list (NULL, NULL);
+ 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+ 		rs = ELEMENT_DATA(e);
+-		new_rs = rs_exist(rs, new_rs_list);
++		new_rs = rs_exist(rs, new_vs->rs);
+ 		if (!new_rs) {
+ 			/* Reset inhibit flag to delete inhibit entries */
+ 			log_message(LOG_INFO, "service %s no longer exist"
+@@ -662,20 +681,15 @@ clear_diff_rs(virtual_server_t * old_vs, list new_rs_list)
+ 				free_list_elements(new_rs->failed_checkers);
+ 			} else {
+ 				/*
+-				 * if not alive, we must copy the failed checker list
++				 * if not alive, we must migrate the failed checker list
+ 				 * If we do not, the new RS is in a state where it’s reported
+ 				 * as down with no check failed. As a result, the server will never
+ 				 * be put up back when it’s alive again in check_tcp.c#83 because
+ 				 * of the check that put a rs up only if it was not previously up
+ 				 * based on the failed_checkers list
+ 				 */
+-				element hc_e;
+-				list hc_l = rs->failed_checkers;
+-				list new_hc_l = new_rs->failed_checkers;
+-				for (hc_e = LIST_HEAD(hc_l); hc_e; ELEMENT_NEXT(hc_e)) {
+-					list_add(new_hc_l, ELEMENT_DATA(hc_e));
+-					ELEMENT_DATA(hc_e) = NULL;
+-				}
++				if (!new_vs->alpha)
++					migrate_failed_checkers(rs, new_rs);
+ 			}
+ 		}
+ 	}
+@@ -748,7 +762,7 @@ clear_diff_services(void)
+ 			/* omega = false must not prevent the notifiers from being called,
+ 			   because the VS still exists in new configuration */
+ 			vs->omega = true;
+-			clear_diff_rs(vs, new_vs->rs);
++			clear_diff_rs(vs, new_vs);
+ 			clear_diff_s_srv(vs, new_vs->s_svr);
+ 		}
+ 	}
+-- 
+2.20.1
+

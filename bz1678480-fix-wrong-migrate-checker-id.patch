@@ -1,0 +1,25 @@
+From cd8b3f6b79d8cd5e89a05825144277785933b687 Mon Sep 17 00:00:00 2001
+From: YAMAMOTO Masaya <pandax381@gmail.com>
+Date: Tue, 11 Jul 2017 15:47:12 +0900
+Subject: [PATCH 4/8] Fix worng migrate of checker-id
+
+---
+ keepalived/check/ipwrapper.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/keepalived/check/ipwrapper.c b/keepalived/check/ipwrapper.c
+index 49262e25..09d86f08 100644
+--- a/keepalived/check/ipwrapper.c
++++ b/keepalived/check/ipwrapper.c
+@@ -651,7 +651,7 @@ migrate_failed_checkers(real_server_t *old_rs, real_server_t *new_rs)
+ 			if (old_c->compare == new_c->compare && new_c->compare(old_c, new_c) == 0) {
+ 				if (svr_checker_up(old_c->id, old_rs) == 0) {
+ 					id = (checker_id_t *) MALLOC(sizeof(checker_id_t));
+-					*id = old_c->id;
++					*id = new_c->id;
+ 					list_add(new_rs->failed_checkers, id);
+ 				}
+ 				break;
+-- 
+2.20.1
+

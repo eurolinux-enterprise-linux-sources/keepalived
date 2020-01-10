@@ -1,0 +1,24 @@
+From 44ad4db4a45c7f152c074dacab48e051b42fde53 Mon Sep 17 00:00:00 2001
+From: Ryan O'Hara <rohara@redhat.com>
+Date: Wed, 3 Apr 2019 07:28:56 -0500
+Subject: [PATCH] Include check_api in ipwrapper
+
+---
+ keepalived/check/ipwrapper.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/keepalived/check/ipwrapper.c b/keepalived/check/ipwrapper.c
+index c9dce2b7..17f0157d 100644
+--- a/keepalived/check/ipwrapper.c
++++ b/keepalived/check/ipwrapper.c
+@@ -24,6 +24,7 @@
+ 
+ #include "ipwrapper.h"
+ #include "ipvswrapper.h"
++#include "check_api.h"
+ #include "logger.h"
+ #include "memory.h"
+ #include "utils.h"
+-- 
+2.20.1
+

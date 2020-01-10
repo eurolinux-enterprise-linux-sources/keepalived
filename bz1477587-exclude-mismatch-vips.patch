@@ -1,0 +1,38 @@
+From f42914b07166db123b55a4acd31f4a6eb280d0f8 Mon Sep 17 00:00:00 2001
+From: Ryan O'Hara <rohara@redhat.com>
+Date: Mon, 11 Dec 2017 12:36:26 -0600
+Subject: [PATCH] Exclude mixed family VIPs from VRRP advertisements
+
+In previous releases of keepalived, it was allowed to have both IPv5
+and IPv6 addresses in the 'virtual_ipaddress' block. The address count
+in VRRP advertisements would reflect all VIPS, both IPv4 and IPv6, but
+the address list would contain empty addresses for any VIP that did
+not match the VRRP instance family. In VRRPv3 this is not allowed, and
+recent releases will simply ignore any VIP that does not match the
+instance family causing those VIPs to not be created in the interface.
+
+Rather than ignore the VIP of mismatched family, this patch will move
+non-matching VIP to the excluded list causing them to not be included
+in the VRRP advertisements but still create them when in MASTER state.
+---
+ keepalived/vrrp/vrrp_parser.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/keepalived/vrrp/vrrp_parser.c b/keepalived/vrrp/vrrp_parser.c
+index 7a383153..d2cd720a 100644
+--- a/keepalived/vrrp/vrrp_parser.c
++++ b/keepalived/vrrp/vrrp_parser.c
+@@ -641,8 +641,9 @@ vrrp_vip_handler(__attribute__((unused)) vector_t *strvec)
+ 				if (vrrp->family == AF_UNSPEC)
+ 					vrrp->family = address_family;
+ 				else if (address_family != vrrp->family) {
+-					log_message(LOG_INFO, "(%s): address family must match VRRP instance [%s] - ignoring", vrrp->iname, str);
++					log_message(LOG_WARNING, "(%s): address family does not match VRRP instance [%s]", vrrp->iname, str);
+ 					free_list_element(vrrp->vip, vrrp->vip->tail);
++					alloc_vrrp_evip(vec);
+ 				}
+ 			}
+ 
+-- 
+2.14.2
+
